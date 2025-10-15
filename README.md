@@ -6,16 +6,23 @@ Type: WEB
 Solves: 51 out 500 (10% of players could solve it)
 
 
+## Intro TL/DR
+
+Ok, folks what looked like a benign login bypass challenge turned into a full scale BLind LDAP injeciton attack!
+
+Solved by combining Auth Bypass LDAP trechniques and OID 2.5.13.18 userPassword Attribute exploit.
+
 ## Recon
 
+Started by navigating to the instance: http://btfryxiw.playat.flagyard.com/login.
 
+![Well the app looked really harmless.](images/login.png)
 
+`Admin:admin`? Nope 🤦
 
-## Foothold
+Ok, better look at source code (`Ctrl + U`):
 
-## Exploitation
-
-
+```html
 <form id="loginForm">
     <div class="form-group">
         <label for="username">Username</label>
@@ -27,13 +34,29 @@ Solves: 51 out 500 (10% of players could solve it)
         <input type="password" id="password" name="password" required autocomplete="current-password" placeholder="Enter your password">
     </div>
 
+```
+
+Nice! Found some user password in the login page source code. Lets see.
+
+
+
+
+
+
+
+
+## Foothold
+
+## Exploitation
+
+
+
 
 
 flask-unsign --decode --cookie '.eJyrVkosLclIzSvJTE4sSU1RsiopKk3VUSotTi2KzwRylUozU2wLchIrU4sMdfJLbUESxTopybYFiSk5IDonPzkxRwmiIy8xNxWoBapcqRYAOD8hRw.aOuVug.gXxEpGtw600ebtSNuQx-LSC63ZU'
 {'authenticated': True, 'user_id': 'uid=player1,ou=users,dc=padl,dc=local', 'username': 'player1'}
 
 Вот теперь понятно что мы имеем дело с LDAP аутентификацией
-
 
 находим валидный аттрибут
 
