@@ -1,9 +1,9 @@
 # CTF Writeup
 
-CTF: POC CTF 2025 (https://flagyard.com/events/65fb235d-0944-42cc-b46e-f6247b2d9e31)
-Chal name: PAD
-Type: WEB
-Solves: 51 out 500 (10% of players could solve it)
+* CTF: POC CTF 2025 (https://flagyard.com/events/65fb235d-0944-42cc-b46e-f6247b2d9e31)
+* Chal name: PAD
+* Type: WEB
+* Solves: 51 out 500 (10% of players could solve it)
 
 
 ## Intro TL/DR
