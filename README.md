@@ -70,10 +70,6 @@ App sets some cookie.
 
 HTTP/1.1 200 OK
 Date: Sun, 12 Oct 2025 16:01:24 GMT
-Content-Type: application/json
-Content-Length: 71
-Connection: keep-alive
-Vary: Cookie
 Set-Cookie: session=.eJyrVkosLclIzSvJTE4sSU1RsiopKk3VUSotTi2KzwRylUozU2wLchIrU4sMdfJLbUESxTopybYFiSk5IDonPzkxRwmiIy8xNxWoBapcqRYAOD8hRw.aOvQ1A.xA6NsmlSZBM2OCGtRC5G_A44H0E; HttpOnly; Path=/
 
 ```
@@ -125,35 +121,41 @@ password123
 
 ```
 
-YES, we get correct login. I explain here why. The Backend must be doing some unsanitized look up of the sort:
+YES, we get correct login. I explain here why. The Backend must be doing some unsanitized look up like:
 
-```bash
+```python
 
-# it was not PHP in CTF but I like it :)
-$login = (&(username = $_POST["username"])(password = $_POST["password"]))
+#backend connects to LDAP first
 
+conn = Connection(server, user=LDAP_BIND_DN, password=LDAP_BIND_PW, auto_bind=True)
+
+#gets creds from POST
+request.form.get('username')
+request.form.get('password')
+
+#builds filter
+login_check = f"(&(username ={username})(password = {password}))"
+
+#performs ldap lookup
+try:
+    conn.search(
+                search_base=LDAP_BASE_DN,
+                search_filter=login_filter,
+            )
+except Exception as e:
+        return f"LDAP error: {str(e)}", 500
 ```
-So app gets creds via POST request and puts in that paranthesis statement. If the variable `$login` is TRUE then we can get in. How does the comparison work? 
 
-At the begining there is the `&` sign which is like AND operator. It compares two object that each yield TRUE OR FALSE: `(& (TRUE)(FALSE))`, in this case password is wrong so statement is FALSE.
+If the LDAP lookup is TRUE then we can get in. 
 
-The idea is to control username and password inputs to fool it to be TRUE. Lets try the game by setting password to `*` this should always return TRUE. BUT no! Password was sanitized. So we can only control the username.
+How does LDAP filter work in this scenario? At the begining there is the `&` sign which is like AND operator. It compares two object that each yield TRUE OR FALSE: `(& (TRUE)(FALSE))`, in this case password is wrong so statement is FALSE. To defeat the challenge, the idea is to control username and password inputs. 
+
+If we try setting password to `*` to get `(&(username =admin)(password = *))` and make this wild card turn whole expression into TURE. BUT it FAILS! Password was sanitized. So we can only control the username input.
 
 Now, may be we should be able to control the password if we inject it into the username POST parameter?
 
-So I wanna send as `username`: `player1)(password=password123` to get this `(& ( username = player1 ) ( password = password123) (password = password123))`. If it returns `success` then it works and password is injectable as I have correct passwored in both `(...)`! 
-
-Here is POST payload:
-
-```bash
-
-player1)(password=password123
-
-test
-
-```
-
-and I get as response..
+So I wanna send as `username`: `player1)(password=password123` to get this `(& ( username = player1 ) ( password = password123) (password = password123))`. If it returns `success` then it works and password parameter is injectable.
+But I fails:
 
 ```bash
 HTTP/1.1 200 OK
@@ -163,25 +165,47 @@ HTTP/1.1 200 OK
 
 My injection did not work as it says username not found!!!
 
-Why? Because password is not a correct attribute. It must be something else inside:
+Why? Because password is not a correct attribute. It must be something else inside the LDAP filter, lets call it UNKOWN for now:
 
 ```bash
 
-$login = (&(username = $_POST["username"])(UNKNOWN = $_POST["password"]))
+login_check = f"(&(username ={username})(UKNOWN = {password}))"
 
 ```
 
-The goal is finding this `UNKNOWN attribute now`. We take it and put into Burp intruder since I did not want to mess with creation of boundary POSTS (but had to d oit later anyway...):
+We can form some intruder payload for the user attribute to figure out the correct parameter for password. Therefore, we inject into username:
 
-```
+```bash
+Content-Disposition: form-data; name="username"
 
 player1)(&FUZZ&=password123
-
-password123
-
 ```
 
-As dictionary I used one of the Seclists. And bingo I got `{"message":"Login successful!","redirect":"/dashboard","success":true}` while using `userPassword`.
+And we send correct password within the password parameter of POST:
+
+```bash
+Content-Disposition: form-data; name="password"
+
+password123
+```
+
+The idea is to get `"Login successful!"` if the `&FUZZ&` placeholder is correct.
+
+I use some dictionary for LDAP attributes from PayloadAlltheThings:
+
+```text
+password
+userPassword
+pass
+passwd
+givenName
+commonName
+cn
+uid
+```
+
+And bingo I got `{"message":"Login successful!","redirect":"/dashboard","success":true}` for `userPassword`. 
+Btw `cn` and `uid` returned TRUE since those are valida LDAP entities.
 
 So my payload should be something like `admin)(userPassword=` for attacking the admin creds.
 
