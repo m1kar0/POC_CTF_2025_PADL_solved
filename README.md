@@ -18,7 +18,7 @@ Started by navigating to the instance: http://btfryxiw.playat.flagyard.com/login
 
 ![Well the app looked really harmless.](images/login.png)
 
-`Admin:admin`? Nope 🤦
+`Admin:admin`? Nope.
 
 Ok, better look at source code (`Ctrl + U`):
 
@@ -147,15 +147,9 @@ Here is POST payload:
 
 ```bash
 
-------geckoformboundary533d8ac55e6a44d466cd9c4fed0292ff
-Content-Disposition: form-data; name="username"
-
 player1)(password=password123
-------geckoformboundary533d8ac55e6a44d466cd9c4fed0292ff
-Content-Disposition: form-data; name="password"
 
 test
-------geckoformboundary533d8ac55e6a44d466cd9c4fed0292ff--
 
 ```
 
@@ -180,15 +174,10 @@ $login = (&(username = $_POST["username"])(UNKNOWN = $_POST["password"]))
 The goal is finding this `UNKNOWN attribute now`. We take it and put into Burp intruder since I did not want to mess with creation of boundary POSTS (but had to d oit later anyway...):
 
 ```
-------geckoformboundary533d8ac55e6a44d466cd9c4fed0292ff
-Content-Disposition: form-data; name="username"
 
 player1)(&FUZZ&=password123
-------geckoformboundary533d8ac55e6a44d466cd9c4fed0292ff
-Content-Disposition: form-data; name="password"
 
 password123
-------geckoformboundary533d8ac55e6a44d466cd9c4fed0292ff--
 
 ```
 
@@ -213,22 +202,70 @@ userPassword:2.5.13.18:=\xx (\xx is a byte)
 userPassword:2.5.13.18:=\xx\xx
 userPassword:2.5.13.18:=\xx\xx\xx
 ```
-Well it was hot obvious to me at all. So I tried manual approach to it.
 
+Well it was not obvious to me at all. So I tried manual approach to it. Lets use this online text to ascii converter (https://www.rapidtables.com/convert/number/ascii-to-hex.html) to get the `password123` in hex. 
+
+![Getting ascii hex.](images/text-to-hex.png)
+
+This yields: `70 61 73 73 77 6F 72 64 31 32 33` but we need `\` as separator. Good old `sed` can help:
+
+```bash
+$echo '70 61 73 73 77 6F 72 64 31 32 33' | sed 's/ /\\/g'
+70\61\73\73\77\6F\72\64\31\32\33
+```
+And now send the result within the valid password request byte by byte. Why? Because we know the correct password we can test if this `ODI 2.5.13.18 exploit works.` 
+
+And as we send we use password=`test` as second argument to explicitely see what is returned when conditrion is TRUE and what is FALSE in out blind ldap injection.
+
+```bash
+#I have remove the boundary and headers for better visibility
+
+player1)(userPassword:2.5.13.18:=\70
+
+test
+
+```
+
+This returns `"message":"Username not found. Please check your username."` but what if we do `hex_byte + 1` ? 
+
+```bash
+#I have remove the boundary and headers for better visibility
+
+player1)(userPassword:2.5.13.18:=\71
+
+test
+
+```
+
+This returns `"message":"Invalid password. Please try again.",`. So BINGO we know that `p` or `\70` must be the first letter in known `player1` account but in this OID notation it has to be `\70 + 1` which is `71`. And as expected we get `"message":"Login successful!",`. 
+
+I we continue with `player1)(userPassword:2.5.13.18:=\70\62` we also get `success`. And we can easily check that `\62 -1` is `\61` which is letter `a` :)
+
+You getting it? Sure! We can apply the same thing to enumerating `admin` password.
+
+![](images/understand.png)
 
 
 ## Exploitation
 
+So I worte a little python script: `blind-ldap-inj.py`.
 
+Let me walk you though this.
 
+I first define `send_request(username)` funtion that uses all necessary headers and constructs the POST request. If the response contains the `"Invalid password"` string then it is regarded as TRUE condition. For example `"Username not found"` is FALSE as it would mean that the OID symbols we send are not mathing the admin password bytes that we are lookign for.
 
-player1)(userPassword:2.5.13.18:=\70\62
+Then I define `extract_byte(prefix)`, it takes some hex like above `\70\62` which I call `prefix` and puts it into the main payload `admin)(userPassword:2.5.13.18:={prefix}{escaped_byte}`. This payload is whithin the loop where it iterates `{escaped_byte}` value from 0 to 100 and send a separate request for each with `send_request`.
 
-След число должно быть на 1 больше чем то с которым оно сравнивается и так и далее
+Finally, it all integrates into the `main()` loop which iterates 100 times though each password character position (I was too lazy to implement correct condition so I expected that password can never be longer that 100).
 
+![](images/less100.png)
+
+We need to account for substract `1` for each corretly identified hex value before storing it into password_bytes string.
+
+And if we run run it we see that it crawls through each position and enumerates each hex by gradually increasing the prefix and saving correct bytes. If you still dont get just try reading my code or even rewriting it!
 
 ```bash
-(venv) yok@nix:~/Sandbox/Flagyard25/PADL$ python3 passwd.py 
+(venv) python3 passwd.py 
 Found byte 1: 0x50 ('P'); current payload suffix: \50
 Found byte 2: 0x34 ('4'); current payload suffix: \34
 Found byte 3: 0x64 ('d'); current payload suffix: \64
@@ -259,6 +296,6 @@ Traceback (most recent call last):
 ValueError: bytes must be in range(0, 256)
 
 ```
-Ouch, there is an error but I got the password anyway and flagged lucky for me: `P4dl_Adm1n_S3cur3_P@ssw0rd_W1th_Sp3c14l_Ch4r5_And_Numb3r5_2024!!`. But looking back at the code we can spot the error:
+Ouch, there is an error but it is expected as in the last iteration it simply did not get TURE conditition after trying out all hex options.
 
-tbd
+I got the password anyway and flagged lucky for me: `P4dl_Adm1n_S3cur3_P@ssw0rd_W1th_Sp3c14l_Ch4r5_And_Numb3r5_2024!!`.

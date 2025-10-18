@@ -1,9 +1,7 @@
+password
 userPassword
-surname
-name
-cn
-sn
-objectClass
-mail
+pass
+passwd
 givenName
 commonName
+cn
